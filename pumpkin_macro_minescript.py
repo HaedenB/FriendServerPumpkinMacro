@@ -224,13 +224,17 @@ def turn_smoothly(degrees: float):
 
 
 def move_to_next_row(going_right: bool):
-    """Move to next row."""
+    """Move to next row - uses wall detection to stop at barrier."""
     if going_right:
         turn_smoothly(90)
     else:
         turn_smoothly(-90)
 
-    walk_simple(FARM_CONFIG["row_spacing"])
+    # Walk until we hit the barrier
+    minescript.player_press_forward(True)
+    while not is_wall_ahead():
+        time.sleep(0.05)
+    minescript.player_press_forward(False)
 
     if going_right:
         turn_smoothly(90)
