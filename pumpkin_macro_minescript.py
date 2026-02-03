@@ -1,6 +1,6 @@
 """
 Pumpkin Farm Macro for Minecraft using Minescript
-Uses proper Minescript API with block detection.
+Smooth camera movement, diagonal alignment, walk-and-break.
 
 Installation:
 1. Install Minescript mod: https://github.com/maxuser0/minescript
@@ -30,6 +30,11 @@ RANDOM_CONFIG = {
     "micro_pause_chance": 0.08,
     "micro_pause_min": 0.05,
     "micro_pause_max": 0.15,
+    "look_offset_max": 1.5,      # Random offset when looking at blocks
+    "smooth_look_steps_min": 8,  # Min steps for smooth camera
+    "smooth_look_steps_max": 15, # Max steps for smooth camera
+    "smooth_look_time_min": 0.2, # Min time for smooth look
+    "smooth_look_time_max": 0.5, # Max time for smooth look
 }
 
 
@@ -65,39 +70,10 @@ def is_pumpkin(x: int, y: int, z: int) -> bool:
         block = minescript.getblock(x, y, z)
         if block is None:
             return False
-        # Handle both string and other return types
         block_str = str(block).lower()
         return "pumpkin" in block_str and "stem" not in block_str
     except:
         return False
-
-
-def get_targeted_block():
-    """Get info about block player is looking at."""
-    try:
-        return minescript.player_get_targeted_block(5)
-    except:
-        return None
-
-
-def is_targeting_pumpkin() -> bool:
-    """Check if player is looking at a pumpkin."""
-    block = get_targeted_block()
-    if block is None:
-        return False
-    try:
-        block_type = str(block.type).lower() if hasattr(block, 'type') else str(block).lower()
-        return "pumpkin" in block_type and "stem" not in block_type
-    except:
-        return False
-
-
-def set_look(yaw: float, pitch: float):
-    """Set player look direction."""
-    # Add slight randomization
-    yaw += random.uniform(-0.5, 0.5)
-    pitch += random.uniform(-0.3, 0.3)
-    minescript.player_set_orientation(yaw, pitch)
 
 
 def get_orientation():
@@ -105,25 +81,139 @@ def get_orientation():
     return minescript.player_orientation()
 
 
-def look_at_block(target_x: int, target_y: int, target_z: int):
-    """Look toward a specific block position."""
-    px, py, pz = get_pos()
-    # Player eye height is roughly y + 1.62
-    eye_y = py + 1.62
+def set_orientation(yaw: float, pitch: float):
+    """Set look direction directly."""
+    minescript.player_set_orientation(yaw, pitch)
 
-    dx = target_x + 0.5 - px
-    dy = target_y + 0.5 - eye_y
-    dz = target_z + 0.5 - pz
+
+def smooth_look_at(target_yaw: float, target_pitch: float):
+    """Smoothly move camera to target with human-like movement.
+
+    Uses easing and randomized timing for natural movement.
+    """
+    current_yaw, current_pitch = get_orientation()
+
+    # Add small random offset to target (humans don't look at exact center)
+    target_yaw += random.uniform(-RANDOM_CONFIG["look_offset_max"], RANDOM_CONFIG["look_offset_max"])
+    target_pitch += random.uniform(-RANDOM_CONFIG["look_offset_max"] / 2, RANDOM_CONFIG["look_offset_max"] / 2)
+
+    # Randomize number of steps and total time
+    steps = random.randint(RANDOM_CONFIG["smooth_look_steps_min"], RANDOM_CONFIG["smooth_look_steps_max"])
+    total_time = random.uniform(RANDOM_CONFIG["smooth_look_time_min"], RANDOM_CONFIG["smooth_look_time_max"])
+
+    # Calculate differences (handle yaw wrap-around)
+    dyaw = target_yaw - current_yaw
+    # Normalize yaw difference to -180 to 180
+    while dyaw > 180:
+        dyaw -= 360
+    while dyaw < -180:
+        dyaw += 360
+
+    dpitch = target_pitch - current_pitch
+
+    for i in range(steps):
+        # Use ease-in-out curve for natural movement
+        t = (i + 1) / steps
+        # Smoothstep easing: 3t^2 - 2t^3
+        eased_t = t * t * (3 - 2 * t)
+
+        # Add slight randomness to each step
+        jitter = random.uniform(0.95, 1.05)
+
+        new_yaw = current_yaw + dyaw * eased_t * jitter
+        new_pitch = current_pitch + dpitch * eased_t * jitter
+
+        set_orientation(new_yaw, new_pitch)
+
+        # Randomize delay between steps
+        step_delay = (total_time / steps) * random.uniform(0.7, 1.3)
+        time.sleep(step_delay)
+
+    # Final adjustment to exact target (with offset)
+    set_orientation(target_yaw, target_pitch)
+
+
+def calculate_look_angles(target_x: float, target_y: float, target_z: float):
+    """Calculate yaw and pitch to look at a world position."""
+    px, py, pz = get_pos()
+    eye_y = py + 1.62  # Eye height
+
+    dx = target_x - px
+    dy = target_y - eye_y
+    dz = target_z - pz
 
     dist_xz = math.sqrt(dx * dx + dz * dz)
 
-    # Calculate yaw (horizontal angle)
     yaw = math.degrees(math.atan2(-dx, dz))
-
-    # Calculate pitch (vertical angle)
     pitch = math.degrees(math.atan2(-dy, dist_xz))
 
-    set_look(yaw, pitch)
+    return yaw, pitch
+
+
+def find_nearest_pumpkin(max_range: int = 10):
+    """Find the nearest pumpkin within range.
+
+    Returns (x, y, z) of nearest pumpkin or None.
+    """
+    px, py, pz = get_block_pos()
+
+    nearest = None
+    nearest_dist = float('inf')
+
+    # Search in a box around player
+    for dx in range(-max_range, max_range + 1):
+        for dz in range(-max_range, max_range + 1):
+            for dy in range(-1, 2):  # Check at feet level, +1, -1
+                x, y, z = px + dx, py + dy, pz + dz
+                if is_pumpkin(x, y, z):
+                    dist = abs(dx) + abs(dz)  # Manhattan distance
+                    if dist < nearest_dist and dist > 0:  # Don't target block we're standing in
+                        nearest_dist = dist
+                        nearest = (x, y, z)
+
+    return nearest
+
+
+def get_facing_direction():
+    """Get the cardinal direction player is facing.
+
+    Returns: 'north', 'south', 'east', 'west'
+    """
+    yaw, _ = get_orientation()
+    yaw = yaw % 360
+    if yaw < 0:
+        yaw += 360
+
+    if 45 <= yaw < 135:
+        return 'west'
+    elif 135 <= yaw < 225:
+        return 'north'
+    elif 225 <= yaw < 315:
+        return 'east'
+    else:
+        return 'south'
+
+
+def calculate_diagonal_look(strafe_left: bool):
+    """Calculate the diagonal look angle for harvesting.
+
+    When strafing left (A), we're pushed right into the wall,
+    so pumpkins are on our left - look slightly left and down.
+
+    When strafing right (D), pumpkins are on our right - look slightly right and down.
+
+    Returns (yaw_offset, pitch) to add to current forward direction.
+    """
+    # Look diagonally toward the pumpkin row
+    # About 30-40 degrees to the side, and 15-25 degrees down
+    if strafe_left:
+        yaw_offset = random.uniform(-35, -25)  # Look left
+    else:
+        yaw_offset = random.uniform(25, 35)    # Look right
+
+    pitch = random.uniform(12, 20)  # Look down at pumpkins
+
+    return yaw_offset, pitch
 
 
 def press_keys(forward=False, left=False, right=False, back=False, attack=False, sprint=False):
@@ -141,158 +231,99 @@ def release_all():
     press_keys()
 
 
-def break_block_at(x: int, y: int, z: int, timeout: float = 2.0):
-    """Look at and break a specific block."""
-    look_at_block(x, y, z)
-    time.sleep(randomize(0.1))
-
-    # Start attacking
-    minescript.player_press_attack(True)
-
-    start = time.time()
-    while time.time() - start < timeout:
-        # Check if block is gone
-        if not is_pumpkin(x, y, z):
-            break
-        time.sleep(0.05)
-
-    minescript.player_press_attack(False)
-    time.sleep(randomize(0.05))
-
-
-def check_and_break_adjacent_pumpkins():
-    """Check for pumpkins to left and right, break if found."""
-    px, py, pz = get_block_pos()
-    yaw, pitch = get_orientation()
-
-    # Determine which direction we're facing (N/S/E/W)
-    # Yaw: 0 = south, 90 = west, 180/-180 = north, -90 = east
-    yaw_normalized = yaw % 360
-    if yaw_normalized > 180:
-        yaw_normalized -= 360
-
-    # Calculate left and right offsets based on facing direction
-    if -45 <= yaw_normalized < 45:  # Facing south (+Z)
-        left_offset = (1, 0)   # East
-        right_offset = (-1, 0) # West
-    elif 45 <= yaw_normalized < 135:  # Facing west (-X)
-        left_offset = (0, 1)   # South
-        right_offset = (0, -1) # North
-    elif yaw_normalized >= 135 or yaw_normalized < -135:  # Facing north (-Z)
-        left_offset = (-1, 0)  # West
-        right_offset = (1, 0)  # East
-    else:  # Facing east (+X)
-        left_offset = (0, -1)  # North
-        right_offset = (0, 1)  # South
-
-    # Check and break left pumpkin
-    left_x = px + left_offset[0]
-    left_z = pz + left_offset[1]
-    if is_pumpkin(left_x, py, left_z):
-        break_block_at(left_x, py, left_z)
-        # Restore forward look
-        set_look(yaw, 0)
-
-    # Check and break right pumpkin
-    right_x = px + right_offset[0]
-    right_z = pz + right_offset[1]
-    if is_pumpkin(right_x, py, right_z):
-        break_block_at(right_x, py, right_z)
-        # Restore forward look
-        set_look(yaw, 0)
-
-
-def walk_row_smart(length: int, strafe_left: bool = True):
-    """Walk a row, checking for and breaking pumpkins."""
-    minescript.echo(f"  Walking row ({length} blocks)...")
-
-    start_x, start_y, start_z = get_block_pos()
-    yaw, _ = get_orientation()
-
-    # Look slightly down to see pumpkins better
-    set_look(yaw, 10)
-
-    blocks_walked = 0
-
-    while blocks_walked < length:
-        # Check for pumpkins on sides
-        check_and_break_adjacent_pumpkins()
-
-        # Move forward with diagonal strafe
-        if strafe_left:
-            press_keys(forward=True, left=True, attack=True)
-        else:
-            press_keys(forward=True, right=True, attack=True)
-
-        time.sleep(randomize(0.25))
-        release_all()
-
-        # Count distance traveled
-        curr_x, curr_y, curr_z = get_block_pos()
-        dx = abs(curr_x - start_x)
-        dz = abs(curr_z - start_z)
-        blocks_walked = max(dx, dz)
-
-        maybe_pause()
-
-        if blocks_walked % 20 == 0 and blocks_walked > 0:
-            minescript.echo(f"    Progress: {blocks_walked}/{length}")
-
-    release_all()
-
-
 def walk_simple(blocks: int, sprint: bool = False):
     """Walk forward without breaking."""
     for _ in range(blocks):
         press_keys(forward=True, sprint=sprint)
         time.sleep(randomize(0.22))
         release_all()
+        time.sleep(randomize(0.03))
         maybe_pause()
 
 
-def turn_right():
-    """Turn 90 degrees right."""
-    yaw, pitch = get_orientation()
-    target = yaw + 90
+def harvest_row(row_num: int, strafe_left: bool):
+    """Harvest a row with proper diagonal camera alignment.
 
-    steps = random.randint(3, 5)
-    for i in range(steps):
-        current = yaw + (90 * (i + 1) / steps)
-        set_look(current, pitch)
-        time.sleep(randomize(0.05))
-
-
-def turn_left():
-    """Turn 90 degrees left."""
-    yaw, pitch = get_orientation()
-    target = yaw - 90
-
-    steps = random.randint(3, 5)
-    for i in range(steps):
-        current = yaw - (90 * (i + 1) / steps)
-        set_look(current, pitch)
-        time.sleep(randomize(0.05))
-
-
-def turn_around():
-    """Turn 180 degrees."""
-    yaw, pitch = get_orientation()
-    direction = random.choice([-1, 1])
-
-    steps = random.randint(5, 8)
-    for i in range(steps):
-        current = yaw + direction * (180 * (i + 1) / steps)
-        set_look(current, pitch)
-        time.sleep(randomize(0.03))
-
-
-def harvest_row(row_num: int):
-    """Harvest one row."""
+    1. Find nearest pumpkin to aim at
+    2. Smoothly look at it
+    3. Adjust to diagonal angle
+    4. Walk forward + strafe + attack (no more camera movement needed)
+    """
     minescript.echo(f"Harvesting row {row_num + 1}/{FARM_CONFIG['total_rows']}")
 
-    # Alternate strafe direction
-    strafe_left = (row_num % 2 == 0)
-    walk_row_smart(FARM_CONFIG["row_length"], strafe_left)
+    # Get current forward direction
+    base_yaw, _ = get_orientation()
+
+    # Find a pumpkin to initially target
+    pumpkin = find_nearest_pumpkin(15)
+
+    if pumpkin:
+        minescript.echo(f"  Found pumpkin at {pumpkin}")
+        # Calculate look angles to that pumpkin
+        target_yaw, target_pitch = calculate_look_angles(
+            pumpkin[0] + 0.5,
+            pumpkin[1] + 0.5,
+            pumpkin[2] + 0.5
+        )
+        # Smoothly look at it
+        smooth_look_at(target_yaw, target_pitch)
+        time.sleep(randomize(0.15))
+
+    # Now set up the diagonal harvesting angle
+    yaw_offset, pitch = calculate_diagonal_look(strafe_left)
+    target_yaw = base_yaw + yaw_offset
+
+    minescript.echo(f"  Setting diagonal angle (offset: {yaw_offset:.1f})")
+    smooth_look_at(target_yaw, pitch)
+    time.sleep(randomize(0.1))
+
+    # Now walk the row - camera stays fixed, diagonal strafe keeps us against wall
+    minescript.echo(f"  Walking {FARM_CONFIG['row_length']} blocks...")
+
+    start_x, _, start_z = get_block_pos()
+    blocks_walked = 0
+
+    # Start movement and attacking
+    if strafe_left:
+        press_keys(forward=True, left=True, attack=True)
+    else:
+        press_keys(forward=True, right=True, attack=True)
+
+    last_progress = 0
+
+    while blocks_walked < FARM_CONFIG["row_length"]:
+        time.sleep(randomize(0.15))
+
+        # Check distance traveled
+        curr_x, _, curr_z = get_block_pos()
+        dx = abs(curr_x - start_x)
+        dz = abs(curr_z - start_z)
+        blocks_walked = max(dx, dz)
+
+        # Progress update every 20 blocks
+        if blocks_walked >= last_progress + 20:
+            last_progress = (blocks_walked // 20) * 20
+            minescript.echo(f"    Progress: {blocks_walked}/{FARM_CONFIG['row_length']}")
+
+        # Occasional micro-variations (but don't move camera much)
+        if random.random() < 0.02:
+            # Tiny pause
+            release_all()
+            time.sleep(random.uniform(0.1, 0.3))
+            if strafe_left:
+                press_keys(forward=True, left=True, attack=True)
+            else:
+                press_keys(forward=True, right=True, attack=True)
+
+    release_all()
+    minescript.echo(f"  Row complete!")
+
+
+def turn_smoothly(degrees: float):
+    """Turn by specified degrees with smooth movement."""
+    yaw, pitch = get_orientation()
+    target_yaw = yaw + degrees
+    smooth_look_at(target_yaw, pitch)
 
 
 def move_to_next_row(going_right: bool):
@@ -301,19 +332,24 @@ def move_to_next_row(going_right: bool):
 
     time.sleep(randomize(0.3))
 
+    # Turn 90 degrees
     if going_right:
-        turn_right()
+        turn_smoothly(90)
     else:
-        turn_left()
+        turn_smoothly(-90)
 
     time.sleep(randomize(0.2))
+
+    # Walk to next row
     walk_simple(FARM_CONFIG["row_spacing"])
+
     time.sleep(randomize(0.2))
 
+    # Turn another 90 to face down the row
     if going_right:
-        turn_right()
+        turn_smoothly(90)
     else:
-        turn_left()
+        turn_smoothly(-90)
 
     time.sleep(randomize(0.3))
 
@@ -322,19 +358,19 @@ def return_to_start():
     """Return to starting position."""
     minescript.echo("Returning to start...")
 
-    turn_right()
+    turn_smoothly(90)
     time.sleep(randomize(0.3))
 
     total_width = (FARM_CONFIG["total_rows"] - 1) * FARM_CONFIG["row_spacing"]
     walk_simple(total_width, sprint=True)
 
     time.sleep(randomize(0.3))
-    turn_right()
+    turn_smoothly(90)
     time.sleep(randomize(0.2))
 
     walk_simple(FARM_CONFIG["row_length"] + FARM_CONFIG["blocks_to_entrance"], sprint=True)
 
-    turn_around()
+    turn_smoothly(180)
     minescript.echo("Returned to start!")
 
 
@@ -350,7 +386,9 @@ def run_cycle(cycle_num: int):
 
     # Harvest all rows
     for row in range(FARM_CONFIG["total_rows"]):
-        harvest_row(row)
+        # Alternate strafe direction each row
+        strafe_left = (row % 2 == 0)
+        harvest_row(row, strafe_left)
 
         if row < FARM_CONFIG["total_rows"] - 1:
             going_right = (row % 2 == 0)
@@ -368,8 +406,9 @@ def main():
     minescript.echo(f"║  Length: {FARM_CONFIG['row_length']:3d}                          ║")
     minescript.echo(f"║  Total: {FARM_CONFIG['total_rows'] * FARM_CONFIG['row_length']:5d}                        ║")
     minescript.echo("╠══════════════════════════════════════╣")
-    minescript.echo("║  - Smart pumpkin detection           ║")
-    minescript.echo("║  - Diagonal movement                 ║")
+    minescript.echo("║  - Smooth camera movement            ║")
+    minescript.echo("║  - Diagonal alignment + walk         ║")
+    minescript.echo("║  - Smart pumpkin targeting           ║")
     minescript.echo("║  - Anti-detection randomization      ║")
     minescript.echo("╚══════════════════════════════════════╝")
     minescript.echo("")
