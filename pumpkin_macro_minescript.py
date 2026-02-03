@@ -1,334 +1,397 @@
 """
 Pumpkin Farm Macro for Minecraft using Minescript
-More precise and reliable than keyboard simulation.
+Uses proper Minescript API with block detection.
 
 Installation:
 1. Install Minescript mod: https://github.com/maxuser0/minescript
 2. Place this file in .minecraft/minescript/ folder
 3. In-game, run: \pumpkin_macro_minescript
-
-Usage:
-- Run the script while standing at farm entrance facing into the farm
-- The script will harvest all rows and return to start automatically
 """
 
 import minescript
 import random
 import time
+import math
 
 # Farm Configuration
 FARM_CONFIG = {
-    "total_rows": 19,           # Number of pumpkin rows (pairs of pumpkin lines)
-    "row_length": 91,           # Blocks per row
-    "blocks_to_entrance": 2,    # Blocks from spawn to first row
-    "row_spacing": 2,           # Blocks between row centers
+    "total_rows": 19,
+    "row_length": 91,
+    "blocks_to_entrance": 2,
+    "row_spacing": 2,
 }
 
-# Randomization Configuration for anti-detection
+# Randomization for anti-detection
 RANDOM_CONFIG = {
-    "timing_variance": 0.15,        # +/- 15% timing variance
-    "pause_chance": 0.02,           # 2% chance of random pause
-    "pause_duration_min": 0.3,
-    "pause_duration_max": 1.5,
-    "micro_pause_chance": 0.08,     # 8% chance of micro-pause
+    "timing_variance": 0.15,
+    "pause_chance": 0.02,
+    "pause_min": 0.3,
+    "pause_max": 1.5,
+    "micro_pause_chance": 0.08,
     "micro_pause_min": 0.05,
     "micro_pause_max": 0.15,
-    "look_jitter_chance": 0.05,     # 5% chance of look jitter
-    "look_jitter_amount": 2.0,      # Degrees of jitter
-}
-
-# Movement timing (seconds)
-TIMING = {
-    "block_time": 0.25,             # Time per block while breaking
-    "walk_time": 0.20,              # Time per block walking
-    "turn_time": 0.1,               # Time for turning
 }
 
 
-def randomize(base_value: float) -> float:
-    """Add random variance to a value."""
-    variance = base_value * RANDOM_CONFIG["timing_variance"]
-    return base_value + random.uniform(-variance, variance)
+def randomize(base: float) -> float:
+    """Add random variance to timing."""
+    variance = base * RANDOM_CONFIG["timing_variance"]
+    return base + random.uniform(-variance, variance)
 
 
 def maybe_pause():
-    """Occasionally pause to seem human-like."""
+    """Occasionally pause like a human would."""
     if random.random() < RANDOM_CONFIG["pause_chance"]:
-        pause_time = random.uniform(
-            RANDOM_CONFIG["pause_duration_min"],
-            RANDOM_CONFIG["pause_duration_max"]
-        )
-        minescript.echo(f"[Pause: {pause_time:.2f}s]")
-        time.sleep(pause_time)
+        time.sleep(random.uniform(RANDOM_CONFIG["pause_min"], RANDOM_CONFIG["pause_max"]))
     elif random.random() < RANDOM_CONFIG["micro_pause_chance"]:
-        time.sleep(random.uniform(
-            RANDOM_CONFIG["micro_pause_min"],
-            RANDOM_CONFIG["micro_pause_max"]
-        ))
+        time.sleep(random.uniform(RANDOM_CONFIG["micro_pause_min"], RANDOM_CONFIG["micro_pause_max"]))
 
 
-def maybe_jitter_look():
-    """Occasionally add small look direction jitter."""
-    if random.random() < RANDOM_CONFIG["look_jitter_chance"]:
-        current_yaw, current_pitch = minescript.player_orientation()
-        jitter_yaw = random.uniform(
-            -RANDOM_CONFIG["look_jitter_amount"],
-            RANDOM_CONFIG["look_jitter_amount"]
-        )
-        jitter_pitch = random.uniform(
-            -RANDOM_CONFIG["look_jitter_amount"] / 2,
-            RANDOM_CONFIG["look_jitter_amount"] / 2
-        )
-        minescript.player_set_orientation(
-            current_yaw + jitter_yaw,
-            current_pitch + jitter_pitch
-        )
+def get_pos():
+    """Get player position as (x, y, z) floats."""
+    pos = minescript.player().position
+    return pos[0], pos[1], pos[2]
 
 
-def get_player_pos():
-    """Get player's current position."""
-    return minescript.player_position()
+def get_block_pos():
+    """Get player block position as integers."""
+    x, y, z = get_pos()
+    return int(math.floor(x)), int(math.floor(y)), int(math.floor(z))
 
 
-def look_direction(yaw: float, pitch: float = 0):
-    """Set player look direction with slight randomization."""
-    actual_yaw = yaw + random.uniform(-1, 1)
-    actual_pitch = pitch + random.uniform(-0.5, 0.5)
-    minescript.player_set_orientation(actual_yaw, actual_pitch)
-    time.sleep(randomize(TIMING["turn_time"]))
+def is_pumpkin(x: int, y: int, z: int) -> bool:
+    """Check if block at position is a pumpkin."""
+    try:
+        block = minescript.getblock(x, y, z)
+        if block is None:
+            return False
+        # Handle both string and other return types
+        block_str = str(block).lower()
+        return "pumpkin" in block_str and "stem" not in block_str
+    except:
+        return False
 
 
-def turn_right_90():
+def get_targeted_block():
+    """Get info about block player is looking at."""
+    try:
+        return minescript.player_get_targeted_block(5)
+    except:
+        return None
+
+
+def is_targeting_pumpkin() -> bool:
+    """Check if player is looking at a pumpkin."""
+    block = get_targeted_block()
+    if block is None:
+        return False
+    try:
+        block_type = str(block.type).lower() if hasattr(block, 'type') else str(block).lower()
+        return "pumpkin" in block_type and "stem" not in block_type
+    except:
+        return False
+
+
+def set_look(yaw: float, pitch: float):
+    """Set player look direction."""
+    # Add slight randomization
+    yaw += random.uniform(-0.5, 0.5)
+    pitch += random.uniform(-0.3, 0.3)
+    minescript.player_set_orientation(yaw, pitch)
+
+
+def get_orientation():
+    """Get current yaw and pitch."""
+    return minescript.player_orientation()
+
+
+def look_at_block(target_x: int, target_y: int, target_z: int):
+    """Look toward a specific block position."""
+    px, py, pz = get_pos()
+    # Player eye height is roughly y + 1.62
+    eye_y = py + 1.62
+
+    dx = target_x + 0.5 - px
+    dy = target_y + 0.5 - eye_y
+    dz = target_z + 0.5 - pz
+
+    dist_xz = math.sqrt(dx * dx + dz * dz)
+
+    # Calculate yaw (horizontal angle)
+    yaw = math.degrees(math.atan2(-dx, dz))
+
+    # Calculate pitch (vertical angle)
+    pitch = math.degrees(math.atan2(-dy, dist_xz))
+
+    set_look(yaw, pitch)
+
+
+def press_keys(forward=False, left=False, right=False, back=False, attack=False, sprint=False):
+    """Set movement key states."""
+    minescript.player_press_forward(forward)
+    minescript.player_press_left(left)
+    minescript.player_press_right(right)
+    minescript.player_press_backward(back)
+    minescript.player_press_attack(attack)
+    minescript.player_press_sprint(sprint)
+
+
+def release_all():
+    """Release all movement keys."""
+    press_keys()
+
+
+def break_block_at(x: int, y: int, z: int, timeout: float = 2.0):
+    """Look at and break a specific block."""
+    look_at_block(x, y, z)
+    time.sleep(randomize(0.1))
+
+    # Start attacking
+    minescript.player_press_attack(True)
+
+    start = time.time()
+    while time.time() - start < timeout:
+        # Check if block is gone
+        if not is_pumpkin(x, y, z):
+            break
+        time.sleep(0.05)
+
+    minescript.player_press_attack(False)
+    time.sleep(randomize(0.05))
+
+
+def check_and_break_adjacent_pumpkins():
+    """Check for pumpkins to left and right, break if found."""
+    px, py, pz = get_block_pos()
+    yaw, pitch = get_orientation()
+
+    # Determine which direction we're facing (N/S/E/W)
+    # Yaw: 0 = south, 90 = west, 180/-180 = north, -90 = east
+    yaw_normalized = yaw % 360
+    if yaw_normalized > 180:
+        yaw_normalized -= 360
+
+    # Calculate left and right offsets based on facing direction
+    if -45 <= yaw_normalized < 45:  # Facing south (+Z)
+        left_offset = (1, 0)   # East
+        right_offset = (-1, 0) # West
+    elif 45 <= yaw_normalized < 135:  # Facing west (-X)
+        left_offset = (0, 1)   # South
+        right_offset = (0, -1) # North
+    elif yaw_normalized >= 135 or yaw_normalized < -135:  # Facing north (-Z)
+        left_offset = (-1, 0)  # West
+        right_offset = (1, 0)  # East
+    else:  # Facing east (+X)
+        left_offset = (0, -1)  # North
+        right_offset = (0, 1)  # South
+
+    # Check and break left pumpkin
+    left_x = px + left_offset[0]
+    left_z = pz + left_offset[1]
+    if is_pumpkin(left_x, py, left_z):
+        break_block_at(left_x, py, left_z)
+        # Restore forward look
+        set_look(yaw, 0)
+
+    # Check and break right pumpkin
+    right_x = px + right_offset[0]
+    right_z = pz + right_offset[1]
+    if is_pumpkin(right_x, py, right_z):
+        break_block_at(right_x, py, right_z)
+        # Restore forward look
+        set_look(yaw, 0)
+
+
+def walk_row_smart(length: int, strafe_left: bool = True):
+    """Walk a row, checking for and breaking pumpkins."""
+    minescript.echo(f"  Walking row ({length} blocks)...")
+
+    start_x, start_y, start_z = get_block_pos()
+    yaw, _ = get_orientation()
+
+    # Look slightly down to see pumpkins better
+    set_look(yaw, 10)
+
+    blocks_walked = 0
+
+    while blocks_walked < length:
+        # Check for pumpkins on sides
+        check_and_break_adjacent_pumpkins()
+
+        # Move forward with diagonal strafe
+        if strafe_left:
+            press_keys(forward=True, left=True, attack=True)
+        else:
+            press_keys(forward=True, right=True, attack=True)
+
+        time.sleep(randomize(0.25))
+        release_all()
+
+        # Count distance traveled
+        curr_x, curr_y, curr_z = get_block_pos()
+        dx = abs(curr_x - start_x)
+        dz = abs(curr_z - start_z)
+        blocks_walked = max(dx, dz)
+
+        maybe_pause()
+
+        if blocks_walked % 20 == 0 and blocks_walked > 0:
+            minescript.echo(f"    Progress: {blocks_walked}/{length}")
+
+    release_all()
+
+
+def walk_simple(blocks: int, sprint: bool = False):
+    """Walk forward without breaking."""
+    for _ in range(blocks):
+        press_keys(forward=True, sprint=sprint)
+        time.sleep(randomize(0.22))
+        release_all()
+        maybe_pause()
+
+
+def turn_right():
     """Turn 90 degrees right."""
-    current_yaw, current_pitch = minescript.player_orientation()
-    target_yaw = current_yaw + 90
+    yaw, pitch = get_orientation()
+    target = yaw + 90
 
-    # Turn in steps for more natural movement
     steps = random.randint(3, 5)
-    step_amount = 90 / steps
-
     for i in range(steps):
-        current_yaw += step_amount + random.uniform(-2, 2)
-        minescript.player_set_orientation(current_yaw, current_pitch)
-        time.sleep(randomize(TIMING["turn_time"] / steps))
-
-    maybe_jitter_look()
+        current = yaw + (90 * (i + 1) / steps)
+        set_look(current, pitch)
+        time.sleep(randomize(0.05))
 
 
-def turn_left_90():
+def turn_left():
     """Turn 90 degrees left."""
-    current_yaw, current_pitch = minescript.player_orientation()
-    target_yaw = current_yaw - 90
+    yaw, pitch = get_orientation()
+    target = yaw - 90
 
     steps = random.randint(3, 5)
-    step_amount = 90 / steps
-
     for i in range(steps):
-        current_yaw -= step_amount + random.uniform(-2, 2)
-        minescript.player_set_orientation(current_yaw, current_pitch)
-        time.sleep(randomize(TIMING["turn_time"] / steps))
-
-    maybe_jitter_look()
+        current = yaw - (90 * (i + 1) / steps)
+        set_look(current, pitch)
+        time.sleep(randomize(0.05))
 
 
 def turn_around():
     """Turn 180 degrees."""
-    current_yaw, current_pitch = minescript.player_orientation()
-    direction = random.choice([-1, 1])  # Random direction
+    yaw, pitch = get_orientation()
+    direction = random.choice([-1, 1])
 
     steps = random.randint(5, 8)
-    step_amount = 180 / steps
-
     for i in range(steps):
-        current_yaw += direction * (step_amount + random.uniform(-3, 3))
-        minescript.player_set_orientation(current_yaw, current_pitch)
+        current = yaw + direction * (180 * (i + 1) / steps)
+        set_look(current, pitch)
         time.sleep(randomize(0.03))
-
-    maybe_jitter_look()
-
-
-def walk_and_break(num_blocks: int, strafe: str = None):
-    """Walk forward while breaking blocks, optionally strafing.
-
-    Args:
-        num_blocks: Number of blocks to traverse
-        strafe: 'left' or 'right' to walk diagonally into wall
-    """
-    minescript.echo(f"  Walking {num_blocks} blocks...")
-
-    # Start holding attack (left click) - True means pressed
-    minescript.player_press_attack(True)
-
-    # Start movement
-    minescript.player_press_forward(True)
-    if strafe == 'left':
-        minescript.player_press_left(True)
-    elif strafe == 'right':
-        minescript.player_press_right(True)
-
-    try:
-        for i in range(num_blocks):
-            # Wait for one block of movement
-            block_time = randomize(TIMING["block_time"])
-            time.sleep(block_time)
-
-            # Human-like behaviors
-            maybe_pause()
-            maybe_jitter_look()
-
-            # Progress indicator
-            if (i + 1) % 20 == 0:
-                minescript.echo(f"    Progress: {i + 1}/{num_blocks}")
-    finally:
-        # Release all keys - False means released
-        minescript.player_press_forward(False)
-        minescript.player_press_attack(False)
-        if strafe == 'left':
-            minescript.player_press_left(False)
-        elif strafe == 'right':
-            minescript.player_press_right(False)
-
-
-def walk_forward(num_blocks: int, sprint: bool = False):
-    """Walk forward without breaking."""
-    if sprint:
-        minescript.player_press_sprint(True)
-
-    minescript.player_press_forward(True)
-
-    try:
-        for i in range(num_blocks):
-            time.sleep(randomize(TIMING["walk_time"]))
-            maybe_pause()
-    finally:
-        minescript.player_press_forward(False)
-        if sprint:
-            minescript.player_press_sprint(False)
 
 
 def harvest_row(row_num: int):
-    """Harvest a single row using diagonal movement.
-
-    Alternates strafe direction between rows for variety.
-    """
+    """Harvest one row."""
     minescript.echo(f"Harvesting row {row_num + 1}/{FARM_CONFIG['total_rows']}")
 
-    # Alternate strafe direction for anti-detection variety
-    strafe = 'left' if (row_num % 2 == 0) else 'right'
+    # Alternate strafe direction
+    strafe_left = (row_num % 2 == 0)
+    walk_row_smart(FARM_CONFIG["row_length"], strafe_left)
 
-    walk_and_break(FARM_CONFIG["row_length"], strafe=strafe)
 
-
-def move_to_next_row(going_right: bool = True):
-    """Move to the adjacent row."""
+def move_to_next_row(going_right: bool):
+    """Move to the next row."""
     minescript.echo("  Moving to next row...")
 
     time.sleep(randomize(0.3))
 
-    # Turn toward next row
     if going_right:
-        turn_right_90()
+        turn_right()
     else:
-        turn_left_90()
+        turn_left()
 
     time.sleep(randomize(0.2))
-
-    # Walk to next row
-    walk_forward(FARM_CONFIG["row_spacing"])
-
+    walk_simple(FARM_CONFIG["row_spacing"])
     time.sleep(randomize(0.2))
 
-    # Turn to face down the row
     if going_right:
-        turn_right_90()
+        turn_right()
     else:
-        turn_left_90()
+        turn_left()
 
     time.sleep(randomize(0.3))
-    maybe_pause()
 
 
 def return_to_start():
-    """Return to starting position after harvesting."""
+    """Return to starting position."""
     minescript.echo("Returning to start...")
 
-    # Turn toward entrance side
-    turn_right_90()
+    turn_right()
     time.sleep(randomize(0.3))
 
-    # Walk back across all rows (sprinting)
     total_width = (FARM_CONFIG["total_rows"] - 1) * FARM_CONFIG["row_spacing"]
-    walk_forward(total_width, sprint=True)
+    walk_simple(total_width, sprint=True)
 
     time.sleep(randomize(0.3))
-
-    # Turn toward entrance
-    turn_right_90()
+    turn_right()
     time.sleep(randomize(0.2))
 
-    # Walk back to entrance
-    walk_forward(FARM_CONFIG["row_length"] + FARM_CONFIG["blocks_to_entrance"], sprint=True)
+    walk_simple(FARM_CONFIG["row_length"] + FARM_CONFIG["blocks_to_entrance"], sprint=True)
 
-    # Face into farm again
     turn_around()
-
     minescript.echo("Returned to start!")
 
 
-def run_harvest_cycle(cycle_num: int):
-    """Run one complete harvest cycle."""
+def run_cycle(cycle_num: int):
+    """Run one harvest cycle."""
     minescript.echo(f"\n{'='*40}")
-    minescript.echo(f"Starting harvest cycle #{cycle_num}")
+    minescript.echo(f"Harvest cycle #{cycle_num}")
     minescript.echo(f"{'='*40}")
 
     # Walk to first row
     minescript.echo("Walking to first row...")
-    time.sleep(randomize(0.5))
-    walk_forward(FARM_CONFIG["blocks_to_entrance"])
+    walk_simple(FARM_CONFIG["blocks_to_entrance"])
 
-    # Harvest all rows in serpentine pattern
+    # Harvest all rows
     for row in range(FARM_CONFIG["total_rows"]):
         harvest_row(row)
 
-        # Move to next row if not last
         if row < FARM_CONFIG["total_rows"] - 1:
             going_right = (row % 2 == 0)
             move_to_next_row(going_right)
 
-    # Return to start
     return_to_start()
 
 
 def main():
-    """Main entry point."""
     minescript.echo("")
-    minescript.echo("╔════════════════════════════════════════╗")
-    minescript.echo("║     Pumpkin Farm Macro (Minescript)    ║")
-    minescript.echo("╠════════════════════════════════════════╣")
-    minescript.echo(f"║  Rows: {FARM_CONFIG['total_rows']:3d}                              ║")
-    minescript.echo(f"║  Pumpkins/row: {FARM_CONFIG['row_length']:3d}                      ║")
-    minescript.echo(f"║  Total: {FARM_CONFIG['total_rows'] * FARM_CONFIG['row_length']:5d}                          ║")
-    minescript.echo("╠════════════════════════════════════════╣")
-    minescript.echo("║  Features:                             ║")
-    minescript.echo("║  - Diagonal movement (both rows)       ║")
-    minescript.echo("║  - Randomized timing                   ║")
-    minescript.echo("║  - Human-like pauses                   ║")
-    minescript.echo("╚════════════════════════════════════════╝")
+    minescript.echo("╔══════════════════════════════════════╗")
+    minescript.echo("║   Pumpkin Farm Macro (Minescript)    ║")
+    minescript.echo("╠══════════════════════════════════════╣")
+    minescript.echo(f"║  Rows: {FARM_CONFIG['total_rows']:3d}                            ║")
+    minescript.echo(f"║  Length: {FARM_CONFIG['row_length']:3d}                          ║")
+    minescript.echo(f"║  Total: {FARM_CONFIG['total_rows'] * FARM_CONFIG['row_length']:5d}                        ║")
+    minescript.echo("╠══════════════════════════════════════╣")
+    minescript.echo("║  - Smart pumpkin detection           ║")
+    minescript.echo("║  - Diagonal movement                 ║")
+    minescript.echo("║  - Anti-detection randomization      ║")
+    minescript.echo("╚══════════════════════════════════════╝")
     minescript.echo("")
     minescript.echo("Starting in 3 seconds...")
-    minescript.echo("Face into the farm from the entrance!")
+    minescript.echo("Stand at entrance facing into farm!")
 
     time.sleep(3)
 
     cycle = 0
-    while True:
-        cycle += 1
-        run_harvest_cycle(cycle)
+    try:
+        while True:
+            cycle += 1
+            run_cycle(cycle)
 
-        # Random delay between cycles
-        delay = random.uniform(1.0, 3.0)
-        minescript.echo(f"Next cycle in {delay:.1f}s...")
-        time.sleep(delay)
+            delay = random.uniform(1.0, 3.0)
+            minescript.echo(f"Next cycle in {delay:.1f}s...")
+            time.sleep(delay)
+    except KeyboardInterrupt:
+        release_all()
+        minescript.echo("Stopped!")
+    finally:
+        release_all()
 
 
 if __name__ == "__main__":
