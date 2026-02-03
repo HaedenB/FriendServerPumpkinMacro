@@ -196,10 +196,10 @@ def harvest_row(row_num: int):
 
     # Set diagonal angle based on row direction
     if row_num % 2 == 0:
-        target_yaw = random.uniform(30, 50)
+        target_yaw = random.uniform(30, 35)
         target_pitch = random.uniform(25, 60)
     else:
-        target_yaw = random.uniform(-150, -130)
+        target_yaw = random.uniform(-160, -150)
         target_pitch = random.uniform(25, 60)
 
     smooth_look_at(target_yaw, target_pitch)
@@ -230,8 +230,11 @@ def move_to_next_row(going_right: bool):
     else:
         turn_smoothly(-90)
 
-    # Walk until we hit the barrier
+    # Walk forward - first walk a bit before checking for walls
+    # to avoid detecting nearby blocks immediately after turning
     minescript.player_press_forward(True)
+    time.sleep(0.5)  # Walk past any nearby blocks first
+
     while not is_wall_ahead():
         time.sleep(0.05)
     minescript.player_press_forward(False)
