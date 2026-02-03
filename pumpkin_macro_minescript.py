@@ -18,7 +18,7 @@ FARM_CONFIG = {
     "total_rows": 19,
     "row_length": 91,
     "blocks_to_entrance": 2,
-    "row_spacing": 2,
+    "row_spacing": 7,
 }
 
 
@@ -175,15 +175,24 @@ def release_all():
 
 def walk_simple(blocks: int, sprint: bool = False):
     """Walk forward for a number of blocks."""
-    for _ in range(blocks):
-        press_keys(forward=True, sprint=sprint)
-        time.sleep(0.2)
-        release_all()
+    # Hold keys for entire duration instead of pulsing
+    press_keys(forward=True, sprint=sprint)
+    # ~0.25s per block walking, ~0.18s sprinting
+    time_per_block = 0.18 if sprint else 0.25
+    time.sleep(blocks * time_per_block)
+    release_all()
 
 
 def harvest_row(row_num: int):
     """Harvest a row - minimal delay version."""
     minescript.echo(f"Row {row_num + 1}")
+
+    # Align with left wall first
+    minescript.player_press_forward(True)
+    minescript.player_press_left(True)
+    time.sleep(0.3)
+    minescript.player_press_forward(False)
+    minescript.player_press_left(False)
 
     # Set diagonal angle based on row direction
     if row_num % 2 == 0:
