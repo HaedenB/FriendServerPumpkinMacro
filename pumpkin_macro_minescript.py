@@ -249,9 +249,9 @@ def harvest_row(row_num: int):
     """Harvest a row with proper diagonal camera alignment.
 
     1. Align to wall first
-    2. Find nearest pumpkin and smoothly look at it
+    2. Find nearest pumpkin, look at it, and break it
     3. Set diagonal angle (~11.7 yaw, ~16.7 pitch)
-    4. Walk W+A + attack - camera stays fixed
+    4. Walk W+A + attack until we hit the end wall
     """
     minescript.echo(f"Harvesting row {row_num + 1}/{FARM_CONFIG['total_rows']}")
 
@@ -276,7 +276,17 @@ def harvest_row(row_num: int):
         )
         # Smoothly look at it
         smooth_look_at(target_yaw, target_pitch)
-        time.sleep(randomize(0.2))
+        time.sleep(randomize(0.1))
+
+        # Break the first pumpkin
+        minescript.echo(f"  Breaking first pumpkin...")
+        minescript.player_press_attack(True)
+        # Wait until pumpkin is broken or timeout
+        start_break = time.time()
+        while is_pumpkin(pumpkin[0], pumpkin[1], pumpkin[2]) and time.time() - start_break < 2.0:
+            time.sleep(0.05)
+        minescript.player_press_attack(False)
+        time.sleep(randomize(0.1))
 
     # Now set up the diagonal harvesting angle
     yaw_offset, pitch = calculate_harvest_angle()
@@ -287,29 +297,31 @@ def harvest_row(row_num: int):
     time.sleep(randomize(0.15))
 
     # Now walk the row - always W+A, camera stays fixed
-    minescript.echo(f"  Walking {FARM_CONFIG['row_length']} blocks...")
+    # Detect end by checking if we stop moving (hit wall)
+    minescript.echo(f"  Walking row...")
 
-    start_x, _, start_z = get_block_pos()
-    blocks_walked = 0
+    last_x, _, last_z = get_pos()
+    stuck_count = 0
+    max_stuck = 5  # If stuck for 5 checks, we've hit the wall
 
     # Start movement: always W+A (forward + strafe left)
     press_keys(forward=True, left=True, attack=True)
 
-    last_progress = 0
+    while stuck_count < max_stuck:
+        time.sleep(randomize(0.2))
 
-    while blocks_walked < FARM_CONFIG["row_length"]:
-        time.sleep(randomize(0.15))
+        # Check if we're still moving
+        curr_x, _, curr_z = get_pos()
+        dx = abs(curr_x - last_x)
+        dz = abs(curr_z - last_z)
+        movement = dx + dz
 
-        # Check distance traveled
-        curr_x, _, curr_z = get_block_pos()
-        dx = abs(curr_x - start_x)
-        dz = abs(curr_z - start_z)
-        blocks_walked = max(dx, dz)
+        if movement < 0.1:  # Barely moved - probably hit wall
+            stuck_count += 1
+        else:
+            stuck_count = 0  # Reset if we moved
 
-        # Progress update every 20 blocks
-        if blocks_walked >= last_progress + 20:
-            last_progress = (blocks_walked // 20) * 20
-            minescript.echo(f"    Progress: {blocks_walked}/{FARM_CONFIG['row_length']}")
+        last_x, last_z = curr_x, curr_z
 
         # Occasional micro-pause for human-like behavior
         if random.random() < 0.02:
@@ -318,7 +330,7 @@ def harvest_row(row_num: int):
             press_keys(forward=True, left=True, attack=True)
 
     release_all()
-    minescript.echo(f"  Row complete!")
+    minescript.echo(f"  Row complete (hit wall)")
 
 
 def turn_smoothly(degrees: float):
