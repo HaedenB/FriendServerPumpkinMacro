@@ -95,9 +95,9 @@ def smooth_look_at(target_yaw: float, target_pitch: float):
     """Smoothly move camera to target."""
     current_yaw, current_pitch = get_orientation()
 
-    # Randomize steps and timing
-    steps = random.randint(8, 15)
-    total_time = random.uniform(0.2, 0.5)
+    # Randomize steps and timing - keep it quick
+    steps = random.randint(5, 10)
+    total_time = random.uniform(0.1, 0.25)
 
     # Handle yaw wrap-around
     dyaw = target_yaw - current_yaw
@@ -177,18 +177,24 @@ def walk_simple(blocks: int, sprint: bool = False):
     """Walk forward for a number of blocks."""
     for _ in range(blocks):
         press_keys(forward=True, sprint=sprint)
-        time.sleep(random.uniform(0.18, 0.25))
+        time.sleep(0.2)
         release_all()
-        time.sleep(random.uniform(0.02, 0.05))
 
 
 def harvest_row(row_num: int):
     """Harvest a row.
 
-    Odd rows (0, 2, 4...): yaw 30-50, pitch 25-60
-    Even rows (1, 3, 5...): yaw -150 to -130, pitch 25-60
+    1. Align with left wall (W+A briefly)
+    2. Look at first pumpkin
+    3. Set diagonal angle
+    4. Hold forward+attack until wall
     """
-    minescript.echo(f"Harvesting row {row_num + 1}/{FARM_CONFIG['total_rows']}")
+    minescript.echo(f"Row {row_num + 1}/{FARM_CONFIG['total_rows']}")
+
+    # Align with left wall first
+    press_keys(forward=True, left=True)
+    time.sleep(0.3)
+    release_all()
 
     # Find and look at first pumpkin
     pumpkin = find_nearest_pumpkin(15)
@@ -197,31 +203,24 @@ def harvest_row(row_num: int):
             pumpkin[0] + 0.5, pumpkin[1] + 0.5, pumpkin[2] + 0.5
         )
         smooth_look_at(target_yaw, target_pitch)
-        time.sleep(random.uniform(0.1, 0.2))
 
     # Set diagonal angle based on row direction
     if row_num % 2 == 0:
-        # Odd rows: yaw 30-50, pitch 25-60
         target_yaw = random.uniform(30, 50)
         target_pitch = random.uniform(25, 60)
     else:
-        # Even rows: yaw -150 to -130, pitch 25-60
         target_yaw = random.uniform(-150, -130)
         target_pitch = random.uniform(25, 60)
 
-    minescript.echo(f"  Angle: yaw={target_yaw:.1f}, pitch={target_pitch:.1f}")
     smooth_look_at(target_yaw, target_pitch)
-    time.sleep(random.uniform(0.1, 0.15))
 
     # Walk and attack until wall
-    minescript.echo(f"  Walking...")
     press_keys(forward=True, attack=True)
 
     while not is_wall_ahead():
-        time.sleep(0.1)
+        time.sleep(0.05)
 
     release_all()
-    minescript.echo(f"  Row complete")
 
 
 def turn_smoothly(degrees: float):
@@ -232,45 +231,31 @@ def turn_smoothly(degrees: float):
 
 def move_to_next_row(going_right: bool):
     """Move to next row."""
-    minescript.echo("  Moving to next row...")
-
-    time.sleep(random.uniform(0.2, 0.4))
-
     if going_right:
         turn_smoothly(90)
     else:
         turn_smoothly(-90)
 
-    time.sleep(random.uniform(0.1, 0.2))
     walk_simple(FARM_CONFIG["row_spacing"])
-    time.sleep(random.uniform(0.1, 0.2))
 
     if going_right:
         turn_smoothly(90)
     else:
         turn_smoothly(-90)
-
-    time.sleep(random.uniform(0.2, 0.3))
 
 
 def return_to_start():
     """Return to starting position."""
-    minescript.echo("Returning to start...")
+    minescript.echo("Returning...")
 
     turn_smoothly(90)
-    time.sleep(random.uniform(0.2, 0.4))
-
     total_width = (FARM_CONFIG["total_rows"] - 1) * FARM_CONFIG["row_spacing"]
     walk_simple(total_width, sprint=True)
 
-    time.sleep(random.uniform(0.2, 0.4))
     turn_smoothly(90)
-    time.sleep(random.uniform(0.1, 0.2))
-
     walk_simple(FARM_CONFIG["row_length"] + FARM_CONFIG["blocks_to_entrance"], sprint=True)
 
     turn_smoothly(180)
-    minescript.echo("Returned to start!")
 
 
 def run_cycle(cycle_num: int):
@@ -293,20 +278,7 @@ def run_cycle(cycle_num: int):
 
 
 def main():
-    minescript.echo("")
-    minescript.echo("╔══════════════════════════════════════╗")
-    minescript.echo("║   Pumpkin Farm Macro (Minescript)    ║")
-    minescript.echo("╠══════════════════════════════════════╣")
-    minescript.echo(f"║  Rows: {FARM_CONFIG['total_rows']:3d}                            ║")
-    minescript.echo(f"║  Length: {FARM_CONFIG['row_length']:3d}                          ║")
-    minescript.echo("╠══════════════════════════════════════╣")
-    minescript.echo("║  Simple diagonal + hold forward      ║")
-    minescript.echo("╚══════════════════════════════════════╝")
-    minescript.echo("")
-    minescript.echo("Starting in 3 seconds...")
-    minescript.echo("Stand at entrance facing into farm!")
-
-    time.sleep(3)
+    minescript.echo("Pumpkin Macro - Starting...")
 
     cycle = 0
     try:
@@ -314,7 +286,7 @@ def main():
             cycle += 1
             run_cycle(cycle)
 
-            delay = random.uniform(1.0, 3.0)
+            delay = random.uniform(0.5, 1.5)
             minescript.echo(f"Next cycle in {delay:.1f}s...")
             time.sleep(delay)
     except KeyboardInterrupt:
