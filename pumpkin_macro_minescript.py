@@ -214,8 +214,8 @@ def harvest_row(row_num: int):
 
     smooth_look_at(target_yaw, target_pitch)
 
-    # Walk and attack until wall
-    press_keys(forward=True, attack=True)
+    # Walk and attack until wall (W+A to stay against left wall)
+    press_keys(forward=True, left=True, attack=True)
 
     while not is_wall_ahead():
         time.sleep(0.05)
