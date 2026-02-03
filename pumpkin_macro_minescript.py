@@ -76,6 +76,46 @@ def is_pumpkin(x: int, y: int, z: int) -> bool:
         return False
 
 
+def is_solid_block(x: int, y: int, z: int) -> bool:
+    """Check if block at position is solid (wall/barrier)."""
+    try:
+        block = minescript.getblock(x, y, z)
+        if block is None:
+            return False
+        block_str = str(block).lower()
+        # Air and plants are not solid
+        if "air" in block_str or "stem" in block_str:
+            return False
+        # Pumpkins are solid but we break them, so don't count as wall
+        if "pumpkin" in block_str:
+            return False
+        # Most other blocks (stone, dirt, etc) are walls
+        return True
+    except:
+        return False
+
+
+def is_wall_ahead() -> bool:
+    """Check if there's a wall directly in front of player."""
+    px, py, pz = get_block_pos()
+    yaw, _ = get_orientation()
+
+    # Determine forward direction based on yaw
+    yaw_norm = yaw % 360
+    if yaw_norm < 0:
+        yaw_norm += 360
+
+    # Check block ahead based on facing direction
+    if 315 <= yaw_norm or yaw_norm < 45:  # Facing south (+Z)
+        return is_solid_block(px, py, pz + 1)
+    elif 45 <= yaw_norm < 135:  # Facing west (-X)
+        return is_solid_block(px - 1, py, pz)
+    elif 135 <= yaw_norm < 225:  # Facing north (-Z)
+        return is_solid_block(px, py, pz - 1)
+    else:  # Facing east (+X)
+        return is_solid_block(px + 1, py, pz)
+
+
 def get_orientation():
     """Get current yaw and pitch."""
     return minescript.player_orientation()
@@ -297,31 +337,14 @@ def harvest_row(row_num: int):
     time.sleep(randomize(0.15))
 
     # Now walk the row - always W+A, camera stays fixed
-    # Detect end by checking if we stop moving (hit wall)
+    # Detect end by checking for wall block ahead
     minescript.echo(f"  Walking row...")
-
-    last_x, _, last_z = get_pos()
-    stuck_count = 0
-    max_stuck = 5  # If stuck for 5 checks, we've hit the wall
 
     # Start movement: always W+A (forward + strafe left)
     press_keys(forward=True, left=True, attack=True)
 
-    while stuck_count < max_stuck:
+    while not is_wall_ahead():
         time.sleep(randomize(0.2))
-
-        # Check if we're still moving
-        curr_x, _, curr_z = get_pos()
-        dx = abs(curr_x - last_x)
-        dz = abs(curr_z - last_z)
-        movement = dx + dz
-
-        if movement < 0.1:  # Barely moved - probably hit wall
-            stuck_count += 1
-        else:
-            stuck_count = 0  # Reset if we moved
-
-        last_x, last_z = curr_x, curr_z
 
         # Occasional micro-pause for human-like behavior
         if random.random() < 0.02:
