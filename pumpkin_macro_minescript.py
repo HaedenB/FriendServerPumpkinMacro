@@ -156,15 +156,15 @@ def walk_and_break(num_blocks: int, strafe: str = None):
     """
     minescript.echo(f"  Walking {num_blocks} blocks...")
 
-    # Start holding attack (left click)
-    minescript.player_press_attack()
+    # Start holding attack (left click) - True means pressed
+    minescript.player_press_attack(True)
 
     # Start movement
-    minescript.player_press_forward()
+    minescript.player_press_forward(True)
     if strafe == 'left':
-        minescript.player_press_left()
+        minescript.player_press_left(True)
     elif strafe == 'right':
-        minescript.player_press_right()
+        minescript.player_press_right(True)
 
     try:
         for i in range(num_blocks):
@@ -180,30 +180,30 @@ def walk_and_break(num_blocks: int, strafe: str = None):
             if (i + 1) % 20 == 0:
                 minescript.echo(f"    Progress: {i + 1}/{num_blocks}")
     finally:
-        # Release all keys
-        minescript.player_release_forward()
-        minescript.player_release_attack()
+        # Release all keys - False means released
+        minescript.player_press_forward(False)
+        minescript.player_press_attack(False)
         if strafe == 'left':
-            minescript.player_release_left()
+            minescript.player_press_left(False)
         elif strafe == 'right':
-            minescript.player_release_right()
+            minescript.player_press_right(False)
 
 
 def walk_forward(num_blocks: int, sprint: bool = False):
     """Walk forward without breaking."""
     if sprint:
-        minescript.player_press_sprint()
+        minescript.player_press_sprint(True)
 
-    minescript.player_press_forward()
+    minescript.player_press_forward(True)
 
     try:
         for i in range(num_blocks):
             time.sleep(randomize(TIMING["walk_time"]))
             maybe_pause()
     finally:
-        minescript.player_release_forward()
+        minescript.player_press_forward(False)
         if sprint:
-            minescript.player_release_sprint()
+            minescript.player_press_sprint(False)
 
 
 def harvest_row(row_num: int):
