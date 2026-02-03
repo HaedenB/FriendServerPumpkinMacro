@@ -201,29 +201,43 @@ def turn_around():
     return True
 
 
-def walk_forward_blocks(num_blocks: int, break_blocks: bool = False):
-    """Walk forward a number of blocks, optionally breaking blocks."""
+def walk_forward_blocks(num_blocks: int, break_blocks: bool = False, strafe_key: str = None):
+    """Walk forward a number of blocks, optionally breaking blocks.
+
+    Args:
+        num_blocks: Number of blocks to walk
+        break_blocks: Whether to hold left click to break blocks
+        strafe_key: Optional 'a' or 'd' to walk diagonally into wall
+    """
     global stop_flag, paused
 
     if break_blocks:
         hold_mouse(Button.left)
 
     press_key('w')
+    if strafe_key:
+        press_key(strafe_key)
 
     for i in range(num_blocks):
         if stop_flag:
             release_key('w')
+            if strafe_key:
+                release_key(strafe_key)
             if break_blocks:
                 release_mouse(Button.left)
             return False
 
         while paused and not stop_flag:
             release_key('w')
+            if strafe_key:
+                release_key(strafe_key)
             if break_blocks:
                 release_mouse(Button.left)
             time.sleep(0.1)
             if not paused:
                 press_key('w')
+                if strafe_key:
+                    press_key(strafe_key)
                 if break_blocks:
                     hold_mouse(Button.left)
 
@@ -245,6 +259,8 @@ def walk_forward_blocks(num_blocks: int, break_blocks: bool = False):
             print(f"    Progress: {i + 1}/{num_blocks} blocks")
 
     release_key('w')
+    if strafe_key:
+        release_key(strafe_key)
     if break_blocks:
         release_mouse(Button.left)
 
@@ -305,21 +321,29 @@ def strafe_left_blocks(num_blocks: int):
 
 
 def harvest_row(row_number: int, going_forward: bool = True):
-    """Harvest a single row of pumpkins."""
+    """Harvest a single row of pumpkins.
+
+    Uses diagonal movement (W+A or W+D) to hug the wall and break
+    pumpkins on both sides of the path simultaneously.
+    """
     global stop_flag
 
     direction = "forward" if going_forward else "backward"
     print(f"  Harvesting row {row_number + 1}/{FARM_CONFIG['total_rows']} ({direction})")
 
+    # Alternate strafe direction to vary movement pattern (anti-detection)
+    # Also allows hitting pumpkins on both sides by looking slightly left/right
+    strafe_key = 'a' if (row_number % 2 == 0) else 'd'
+
     if going_forward:
-        return walk_forward_blocks(FARM_CONFIG["row_length"], break_blocks=True)
+        return walk_forward_blocks(FARM_CONFIG["row_length"], break_blocks=True, strafe_key=strafe_key)
     else:
         # Turn around, walk forward (breaking), turn around again
         if not turn_around():
             return False
         time.sleep(randomize_time(0.2))
 
-        if not walk_forward_blocks(FARM_CONFIG["row_length"], break_blocks=True):
+        if not walk_forward_blocks(FARM_CONFIG["row_length"], break_blocks=True, strafe_key=strafe_key):
             return False
 
         time.sleep(randomize_time(0.2))
@@ -528,7 +552,8 @@ def print_banner():
 ║    - Pumpkins per row: {length:3d}                              ║
 ║    - Total pumpkins: {total:5d}                                ║
 ╠════════════════════════════════════════════════════════════╣
-║  Anti-Detection Features:                                  ║
+║  Features:                                                 ║
+║    - Diagonal movement (W+A/D) to hit both pumpkin rows   ║
 ║    - Randomized timing (±{variance:.0%})                          ║
 ║    - Random pauses and micro-pauses                        ║
 ║    - Mouse movement jitter                                 ║
