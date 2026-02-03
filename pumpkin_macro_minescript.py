@@ -426,7 +426,7 @@ def run_cycle(cycle_num: int):
         harvest_row(row)
 
         if row < FARM_CONFIG["total_rows"] - 1:
-            going_right = (row % 2 == 0)
+            going_right = (row % 2 == 1)  # Left first, then right, alternating
             move_to_next_row(going_right)
 
     return_to_start()
