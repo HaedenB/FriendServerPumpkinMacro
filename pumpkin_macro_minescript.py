@@ -194,24 +194,18 @@ def get_facing_direction():
         return 'south'
 
 
-def calculate_diagonal_look(strafe_left: bool):
+def calculate_harvest_angle():
     """Calculate the diagonal look angle for harvesting.
 
-    When strafing left (A), we're pushed right into the wall,
-    so pumpkins are on our left - look slightly left and down.
-
-    When strafing right (D), pumpkins are on our right - look slightly right and down.
+    Based on testing: ~11.7 yaw offset, ~16.7 pitch works well.
+    Always strafe left (W+A), walk into pumpkins on the right.
 
     Returns (yaw_offset, pitch) to add to current forward direction.
     """
-    # Look diagonally toward the pumpkin row
-    # About 30-40 degrees to the side, and 15-25 degrees down
-    if strafe_left:
-        yaw_offset = random.uniform(-35, -25)  # Look left
-    else:
-        yaw_offset = random.uniform(25, 35)    # Look right
-
-    pitch = random.uniform(12, 20)  # Look down at pumpkins
+    # Yaw: about 11-12 degrees to the left of forward
+    # Pitch: about 16-17 degrees down
+    yaw_offset = random.uniform(10.5, 13.0)  # Slight left offset
+    pitch = random.uniform(15.5, 18.0)       # Looking down at pumpkins
 
     return yaw_offset, pitch
 
@@ -241,18 +235,33 @@ def walk_simple(blocks: int, sprint: bool = False):
         maybe_pause()
 
 
-def harvest_row(row_num: int, strafe_left: bool):
+def align_to_wall():
+    """Walk into the wall briefly to align position before harvesting."""
+    minescript.echo("  Aligning to wall...")
+    # Walk forward + left to press against the right wall
+    press_keys(forward=True, left=True)
+    time.sleep(randomize(0.5))
+    release_all()
+    time.sleep(randomize(0.1))
+
+
+def harvest_row(row_num: int):
     """Harvest a row with proper diagonal camera alignment.
 
-    1. Find nearest pumpkin to aim at
-    2. Smoothly look at it
-    3. Adjust to diagonal angle
-    4. Walk forward + strafe + attack (no more camera movement needed)
+    1. Align to wall first
+    2. Find nearest pumpkin and smoothly look at it
+    3. Set diagonal angle (~11.7 yaw, ~16.7 pitch)
+    4. Walk W+A + attack - camera stays fixed
     """
     minescript.echo(f"Harvesting row {row_num + 1}/{FARM_CONFIG['total_rows']}")
 
-    # Get current forward direction
+    # First align to the wall
+    align_to_wall()
+
+    # Get current forward direction (should be aligned to row now)
     base_yaw, _ = get_orientation()
+    # Snap to nearest cardinal direction for consistency
+    base_yaw = round(base_yaw / 90) * 90
 
     # Find a pumpkin to initially target
     pumpkin = find_nearest_pumpkin(15)
@@ -267,27 +276,24 @@ def harvest_row(row_num: int, strafe_left: bool):
         )
         # Smoothly look at it
         smooth_look_at(target_yaw, target_pitch)
-        time.sleep(randomize(0.15))
+        time.sleep(randomize(0.2))
 
     # Now set up the diagonal harvesting angle
-    yaw_offset, pitch = calculate_diagonal_look(strafe_left)
+    yaw_offset, pitch = calculate_harvest_angle()
     target_yaw = base_yaw + yaw_offset
 
-    minescript.echo(f"  Setting diagonal angle (offset: {yaw_offset:.1f})")
+    minescript.echo(f"  Setting angle: yaw={target_yaw:.1f}, pitch={pitch:.1f}")
     smooth_look_at(target_yaw, pitch)
-    time.sleep(randomize(0.1))
+    time.sleep(randomize(0.15))
 
-    # Now walk the row - camera stays fixed, diagonal strafe keeps us against wall
+    # Now walk the row - always W+A, camera stays fixed
     minescript.echo(f"  Walking {FARM_CONFIG['row_length']} blocks...")
 
     start_x, _, start_z = get_block_pos()
     blocks_walked = 0
 
-    # Start movement and attacking
-    if strafe_left:
-        press_keys(forward=True, left=True, attack=True)
-    else:
-        press_keys(forward=True, right=True, attack=True)
+    # Start movement: always W+A (forward + strafe left)
+    press_keys(forward=True, left=True, attack=True)
 
     last_progress = 0
 
@@ -305,15 +311,11 @@ def harvest_row(row_num: int, strafe_left: bool):
             last_progress = (blocks_walked // 20) * 20
             minescript.echo(f"    Progress: {blocks_walked}/{FARM_CONFIG['row_length']}")
 
-        # Occasional micro-variations (but don't move camera much)
+        # Occasional micro-pause for human-like behavior
         if random.random() < 0.02:
-            # Tiny pause
             release_all()
             time.sleep(random.uniform(0.1, 0.3))
-            if strafe_left:
-                press_keys(forward=True, left=True, attack=True)
-            else:
-                press_keys(forward=True, right=True, attack=True)
+            press_keys(forward=True, left=True, attack=True)
 
     release_all()
     minescript.echo(f"  Row complete!")
@@ -386,9 +388,7 @@ def run_cycle(cycle_num: int):
 
     # Harvest all rows
     for row in range(FARM_CONFIG["total_rows"]):
-        # Alternate strafe direction each row
-        strafe_left = (row % 2 == 0)
-        harvest_row(row, strafe_left)
+        harvest_row(row)
 
         if row < FARM_CONFIG["total_rows"] - 1:
             going_right = (row % 2 == 0)
