@@ -182,27 +182,8 @@ def walk_simple(blocks: int, sprint: bool = False):
 
 
 def harvest_row(row_num: int):
-    """Harvest a row.
-
-    1. Align with left wall (W+A briefly)
-    2. Look at first pumpkin
-    3. Set diagonal angle
-    4. Hold forward+attack until wall
-    """
-    minescript.echo(f"Row {row_num + 1}/{FARM_CONFIG['total_rows']}")
-
-    # Align with left wall first
-    press_keys(forward=True, left=True)
-    time.sleep(0.3)
-    release_all()
-
-    # Find and look at first pumpkin
-    pumpkin = find_nearest_pumpkin(15)
-    if pumpkin:
-        target_yaw, target_pitch = calculate_look_angles(
-            pumpkin[0] + 0.5, pumpkin[1] + 0.5, pumpkin[2] + 0.5
-        )
-        smooth_look_at(target_yaw, target_pitch)
+    """Harvest a row - minimal delay version."""
+    minescript.echo(f"Row {row_num + 1}")
 
     # Set diagonal angle based on row direction
     if row_num % 2 == 0:
@@ -214,13 +195,17 @@ def harvest_row(row_num: int):
 
     smooth_look_at(target_yaw, target_pitch)
 
-    # Walk and attack until wall (W+A to stay against left wall)
-    press_keys(forward=True, left=True, attack=True)
+    # Walk W+A and attack until wall - call each key function directly
+    minescript.player_press_forward(True)
+    minescript.player_press_left(True)
+    minescript.player_press_attack(True)
 
     while not is_wall_ahead():
         time.sleep(0.05)
 
-    release_all()
+    minescript.player_press_forward(False)
+    minescript.player_press_left(False)
+    minescript.player_press_attack(False)
 
 
 def turn_smoothly(degrees: float):
